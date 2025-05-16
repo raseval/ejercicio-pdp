@@ -1,0 +1,89 @@
+---
+title: "XAI3"
+output: html_document
+date: "2025-05-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(randomForest)
+library(pdp)
+library(plotly)
+library(dplyr)
+```
+
+```{r pressure, echo=FALSE}
+df <- read.csv("hour.csv")
+df$dteday <- as.Date(df$dteday)
+df$days_since_2011 <- as.numeric(difftime(df$dteday, as.Date("2011-01-01"), units = "days"))
+vars <- c("days_since_2011", "temp", "hum", "windspeed")
+X <- df[, vars]
+y <- df$cnt
+set.seed(42)
+rf_model <- randomForest(x = X, y = y, ntree = 100)
+
+for (var in vars) {
+  pd <- partial(rf_model, pred.var = var, train = X)
+  print(autoplot(pd) + ggtitle(paste("Partial Dependence of", var, "on cnt")))
+}
+```
+
+```{r}
+library(ggplot2)
+sample_idx <- sample(nrow(df), 1000)
+X_sample <- df[sample_idx, vars]
+pd_2d <- partial(rf_model, pred.var = c("hum", "temp"), train = X_sample, chull = TRUE)
+
+temp_vals <- sort(unique(pd_2d$temp))
+hum_vals <- sort(unique(pd_2d$hum))
+
+width_x <- min(diff(temp_vals)) * 1.05
+height_y <- min(diff(hum_vals)) * 1.05
+
+ggplot(pd_2d, aes(x = temp, y = hum, fill = yhat)) +
+  geom_tile(width = width_x, height = height_y) +  # Tiles sin huecos
+  scale_fill_viridis_c(option = "viridis") +       # Color continuo
+  labs(title = "2D Partial Dependence Plot: Humidity & Temperature",
+       x = "Temperature",
+       y = "Humidity",
+       fill = "Predicted\nBike Count") +
+  theme_minimal()
+```
+
+```{r}
+df <- read.csv("kc_house_data.csv")
+
+# Variables predictoras
+vars <- c("bedrooms", "bathrooms", "sqft_living", "sqft_lot", "floors", "yr_built")
+
+# Seleccionar muestra aleatoria de 1000 filas para acelerar
+set.seed(123)
+sample_idx <- sample(nrow(df), 1000)
+df_sample <- df[sample_idx, ]
+
+# Entrenar modelo random forest para predecir price
+rf_model <- randomForest(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + floors + yr_built,
+                         data = df_sample, ntree = 100)
+
+# Función para plot PDP con plotly
+plot_pdp_plotly <- function(model, data, feature) {
+  pd <- partial(model, pred.var = feature, train = data)
+  fig <- plot_ly(pd, x = ~get(feature), y = ~yhat, type = 'scatter', mode = 'lines') %>%
+    layout(title = paste("Partial Dependence Plot for", feature),
+           xaxis = list(title = feature),
+           yaxis = list(title = "Predicted Price"))
+  return(fig)
+}
+
+# PDP para cada variable
+fig_bedrooms <- plot_pdp_plotly(rf_model, df_sample, "bedrooms")
+fig_bathrooms <- plot_pdp_plotly(rf_model, df_sample, "bathrooms")
+fig_sqft_living <- plot_pdp_plotly(rf_model, df_sample, "sqft_living")
+fig_floors <- plot_pdp_plotly(rf_model, df_sample, "floors")
+
+# Mostrar uno de ejemplo (puedes cambiar para ver otro)
+fig_bedrooms
+```
